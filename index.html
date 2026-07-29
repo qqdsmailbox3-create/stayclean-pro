@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -10,6 +11,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts (Pretendard) -->
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Supabase JS Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <style>
         body { 
             font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; 
@@ -25,6 +29,15 @@
         button, input, select {
             touch-action: manipulation;
         }
+
+        /* Pulse animation for real-time status badge */
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.03); }
+        }
+        .animate-pulse-slow {
+            animation: pulse-slow 2.5s infinite ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col antialiased selection:bg-teal-500 selection:text-white">
@@ -37,9 +50,14 @@
                     <i class="fa-solid fa-hotel"></i>
                 </div>
                 <div class="min-w-0">
-                    <div class="flex items-center gap-1.5">
+                    <div class="flex items-center gap-1.5 flex-wrap">
                         <h1 class="font-extrabold text-base sm:text-lg tracking-tight truncate">StayClean Pro</h1>
                         <span class="bg-teal-500/20 text-teal-300 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full border border-teal-500/30 shrink-0">동대문</span>
+                        <!-- Supabase Cloud DB Connection Badge -->
+                        <span id="cloudDbBadge" class="bg-emerald-500/20 text-emerald-300 text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 flex items-center gap-1 animate-pulse-slow shrink-0" title="모든 기기 실시간 데이터 동기화 활성화됨">
+                            <i class="fa-solid fa-cloud text-emerald-400"></i>
+                            <span id="cloudDbBadgeText">실시간 DB 연결</span>
+                        </span>
                     </div>
                     <p class="text-[10px] sm:text-[11px] text-slate-400 hidden sm:block truncate">호스텔 스마트 정비 및 종합 업무 관제</p>
                 </div>
@@ -89,9 +107,9 @@
         </nav>
     </header>
 
-    <!-- Main Content Body -->
     <main class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 flex-grow w-full">
 
+        <!-- TODAY'S TASKS VIEW -->
         <section id="view-today" class="space-y-4 sm:space-y-6">
             <!-- Date Navigation Control Bar -->
             <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between gap-2 sm:gap-4">
@@ -413,6 +431,7 @@
         </section>
     </main>
 
+
     <!-- LOGIN / ACCOUNT SWITCH MODAL -->
     <div id="loginModal" class="hidden fixed inset-0 bg-slate-950/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-3xl max-w-md w-full p-5 sm:p-8 shadow-2xl border border-slate-100 space-y-5 my-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -663,6 +682,19 @@
     <div id="toastContainer" class="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col gap-2 pointer-events-none max-w-[90vw]"></div>
 
     <script>
+        // SUPABASE REALTIME CLOUD DB CONFIGURATION
+        const SUPABASE_URL = 'https://ynvyowtlrjtlpkghhhjk.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inludnlvd3Rscmp0bHBrZ2hoaGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMDY1NTIsImV4cCI6MjEwMDg4MjU1Mn0.reuYHh91Q4cMuDaUl7Bkji3SKKtxy21jmMPPePR-zw0';
+
+        let supabaseClient = null;
+        if (window.supabase && typeof window.supabase.createClient === 'function') {
+            try {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } catch(err) {
+                console.error("Supabase Client Init Error", err);
+            }
+        }
+
         // Default 39 Rooms Master Database Configuration
         const DEFAULT_ROOMS_39 = [
             { roomNo: '201', bed1: '큰침대', bed2: '작은침대', bed3: '-', bed4: '쇼파베드', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
@@ -745,6 +777,7 @@
         let currentActiveTab = 'today';
         let activeEquipmentFilter = null;
         let myTasksOnlyFilter = false;
+        let isSupabaseConnected = false;
 
         function saveStorageData() {
             try {
@@ -773,8 +806,131 @@
             } catch(e) {
                 console.error("Storage load error", e);
             }
-            if (!masterEquipment || masterEquipment.length === 0) {
-                masterEquipment = JSON.parse(JSON.stringify(DEFAULT_EQUIP_MASTER));
+        }
+
+        // SUPABASE SYNC LOGIC
+        async function fetchSupabaseTasks() {
+            if (!supabaseClient) return;
+            try {
+                const { data, error } = await supabaseClient
+                    .from('tasks')
+                    .select('*');
+
+                if (!error && data) {
+                    isSupabaseConnected = true;
+                    updateCloudDbBadge(true);
+
+                    if (data.length > 0) {
+                        // Map database columns to app task structure
+                        tasksList = data.map(row => ({
+                            id: row.id,
+                            taskDate: row.task_date || row.taskDate || '2026-07-29',
+                            category: row.category || '청소',
+                            worker: row.worker || '공동',
+                            roomNo: row.room_no || row.roomNo || '201',
+                            stayInfo: row.stay_info || row.stayInfo || '1박',
+                            outTime: row.out_time || row.outTime || '11시',
+                            inTime: row.in_time || row.inTime || '15시',
+                            memo: row.memo || '',
+                            amount: row.amount || 0,
+                            completed: row.completed || false
+                        }));
+                        saveStorageData();
+                        renderAllViews();
+                    } else {
+                        // DB table exists but is empty -> insert default initial 6 tasks
+                        await seedDefaultTasksToSupabase();
+                    }
+                } else if (error) {
+                    console.log("Supabase tasks table fetch notice (falling back to LocalStorage):", error.message);
+                    updateCloudDbBadge(false);
+                }
+            } catch (err) {
+                console.error("Supabase sync exception:", err);
+                updateCloudDbBadge(false);
+            }
+        }
+
+        async function seedDefaultTasksToSupabase() {
+            if (!supabaseClient) return;
+            try {
+                const dbRows = DEFAULT_TASKS.map(t => ({
+                    id: t.id,
+                    task_date: t.taskDate,
+                    category: t.category,
+                    worker: t.worker,
+                    room_no: t.roomNo,
+                    stay_info: t.stayInfo,
+                    out_time: t.outTime,
+                    in_time: t.inTime,
+                    memo: t.memo,
+                    amount: t.amount,
+                    completed: t.completed
+                }));
+                await supabaseClient.from('tasks').upsert(dbRows);
+            } catch (err) {
+                console.error("Seed default tasks error", err);
+            }
+        }
+
+        async function syncTaskToSupabase(task, action = 'upsert') {
+            if (!supabaseClient) return;
+            try {
+                if (action === 'delete') {
+                    await supabaseClient.from('tasks').delete().eq('id', task.id);
+                } else {
+                    const dbRow = {
+                        id: task.id,
+                        task_date: task.taskDate,
+                        category: task.category,
+                        worker: task.worker,
+                        room_no: task.roomNo,
+                        stay_info: task.stayInfo,
+                        out_time: task.outTime,
+                        in_time: task.inTime,
+                        memo: task.memo,
+                        amount: task.amount,
+                        completed: task.completed
+                    };
+                    await supabaseClient.from('tasks').upsert([dbRow]);
+                }
+            } catch (err) {
+                console.error("Supabase single task sync error:", err);
+            }
+        }
+
+        function setupSupabaseRealtimeListener() {
+            if (!supabaseClient) return;
+            try {
+                if (typeof WebSocket === 'undefined') return;
+                
+                const channel = supabaseClient.channel('public:tasks');
+                channel
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+                        console.log("Realtime event received from Supabase:", payload);
+                        fetchSupabaseTasks();
+                    })
+                    .subscribe((status, err) => {
+                        if (status === 'CHANNEL_ERROR' || err) {
+                            console.warn("Realtime WebSocket subscription unavailable in this environment. Falling back to HTTP sync.");
+                        }
+                    });
+            } catch(e) {
+                console.warn("Realtime subscription skipped due to environment restriction:", e);
+            }
+        }
+
+        function updateCloudDbBadge(isConnected) {
+            const badge = document.getElementById('cloudDbBadge');
+            const badgeText = document.getElementById('cloudDbBadgeText');
+            if (!badge || !badgeText) return;
+
+            if (isConnected) {
+                badge.className = "bg-emerald-500/20 text-emerald-300 text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 flex items-center gap-1 animate-pulse-slow shrink-0";
+                badgeText.innerText = "실시간 DB 연결됨";
+            } else {
+                badge.className = "bg-slate-700/60 text-slate-400 text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-600 flex items-center gap-1 shrink-0";
+                badgeText.innerText = "로컬 모드";
             }
         }
 
@@ -1513,26 +1669,27 @@
             if (modal) modal.classList.add('hidden');
         }
 
-        function saveTaskEdit(event) {
+        async function saveTaskEdit(event) {
             event.preventDefault();
             const idVal = document.getElementById('editTaskId').value;
             const taskDateVal = document.getElementById('editTaskDate').value || selectedDate;
+            let targetTask = null;
 
             if (idVal) {
-                const task = tasksList.find(t => String(t.id) === String(idVal));
-                if (task) {
-                    task.taskDate = taskDateVal;
-                    task.category = document.getElementById('editTaskCategory').value;
-                    task.worker = document.getElementById('editTaskWorker').value;
-                    task.roomNo = document.getElementById('editTaskRoomNo').value;
-                    task.stayInfo = document.getElementById('editTaskStayInfo').value || '1박';
-                    task.outTime = document.getElementById('editTaskOutTime').value;
-                    task.inTime = document.getElementById('editTaskInTime').value;
-                    task.memo = document.getElementById('editTaskMemo').value;
-                    task.amount = parseInt(document.getElementById('editTaskAmount').value) || 0;
+                targetTask = tasksList.find(t => String(t.id) === String(idVal));
+                if (targetTask) {
+                    targetTask.taskDate = taskDateVal;
+                    targetTask.category = document.getElementById('editTaskCategory').value;
+                    targetTask.worker = document.getElementById('editTaskWorker').value;
+                    targetTask.roomNo = document.getElementById('editTaskRoomNo').value;
+                    targetTask.stayInfo = document.getElementById('editTaskStayInfo').value || '1박';
+                    targetTask.outTime = document.getElementById('editTaskOutTime').value;
+                    targetTask.inTime = document.getElementById('editTaskInTime').value;
+                    targetTask.memo = document.getElementById('editTaskMemo').value;
+                    targetTask.amount = parseInt(document.getElementById('editTaskAmount').value) || 0;
                 }
             } else {
-                const newTask = {
+                targetTask = {
                     id: Date.now(),
                     taskDate: taskDateVal,
                     category: document.getElementById('editTaskCategory').value,
@@ -1545,28 +1702,36 @@
                     amount: parseInt(document.getElementById('editTaskAmount').value) || 0,
                     completed: false
                 };
-                tasksList.push(newTask);
+                tasksList.push(targetTask);
             }
 
             selectedDate = taskDateVal;
             saveStorageData();
+            if (targetTask) {
+                await syncTaskToSupabase(targetTask, 'upsert');
+            }
             closeTaskEditModal();
-            showToast("작업 데이터가 성공적으로 저장되었습니다.", "success");
+            showToast("작업 데이터가 실시간으로 보존되었습니다.", "success");
             renderAllViews();
         }
 
-        function deleteTask(taskId) {
+        async function deleteTask(taskId) {
+            const taskToDelete = tasksList.find(t => String(t.id) === String(taskId));
             tasksList = tasksList.filter(t => String(t.id) !== String(taskId));
             saveStorageData();
+            if (taskToDelete) {
+                await syncTaskToSupabase(taskToDelete, 'delete');
+            }
             showToast("작업이 목록에서 삭제되었습니다.", "danger");
             renderAllViews();
         }
 
-        function toggleTaskComplete(taskId) {
+        async function toggleTaskComplete(taskId) {
             const task = tasksList.find(t => String(t.id) === String(taskId));
             if (task) {
                 task.completed = !task.completed;
                 saveStorageData();
+                await syncTaskToSupabase(task, 'upsert');
                 showToast(`${task.roomNo}호 작업 상태가 [${task.completed ? '✓ 청소완료' : '⏳ 진행중'}]로 변경되었습니다!`, task.completed ? "success" : "info");
                 renderAllViews();
             }
@@ -1741,9 +1906,20 @@
             if (clock) clock.innerText = new Date().toLocaleString('ko-KR');
         }, 1000);
 
-        window.onload = function() {
+        window.onload = async function() {
             loadStorageData();
             renderAllViews();
+            
+            if (supabaseClient) {
+                await fetchSupabaseTasks();
+                setupSupabaseRealtimeListener();
+
+                // Periodic HTTP polling fallback (for environments where WebSockets are restricted)
+                setInterval(() => {
+                    fetchSupabaseTasks();
+                }, 15000);
+            }
+
             if (!currentUser) {
                 openLoginModal();
             }
