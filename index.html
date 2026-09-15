@@ -627,6 +627,11 @@
                     </div>
                 </div>
 
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-500 mb-1">MEMO</label>
+                    <input type="text" id="editRoomMemo" placeholder="예) 청소기 요청, 다리미 고장 등" class="w-full bg-slate-50 border border-slate-300 text-xs text-slate-800 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500">
+                </div>
+
                 <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
                     <button type="button" onclick="closeRoomEditModal()" class="bg-slate-100 text-slate-700 font-semibold px-4 py-2 rounded-xl">취소</button>
                     <button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white font-bold px-5 py-2 rounded-xl shadow-xs transition">저장하기</button>
@@ -737,9 +742,8 @@
             { roomNo: '1104', bed1: '큰침대', bed2: '-', bed3: '-', bed4: '-', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] }
         ];
 
-        // Default Master Equipment
+        // Default Master Equipment (쇼파베드는 침대구성4 항목으로 별도 관리되므로 비품 목록에서 제외)
         const DEFAULT_EQUIP_MASTER = [
-            { name: '쇼파베드', icon: '🛋️' },
             { name: '가스경보기', icon: '🚨' },
             { name: '청소기', icon: '🧹' },
             { name: '선풍기', icon: '🌀' },
@@ -805,6 +809,14 @@
             } catch(e) {
                 console.error("Storage load error", e);
             }
+
+            // 쇼파베드는 침대구성4로 대체되어 비품 목록에서 제외 (기존 저장 데이터에 남아있어도 정리)
+            masterEquipment = masterEquipment.filter(eq => eq.name !== '쇼파베드');
+            roomsDB.forEach(r => {
+                if (r.equip && r.equip.includes('쇼파베드')) {
+                    r.equip = r.equip.filter(name => name !== '쇼파베드');
+                }
+            });
         }
 
         // SUPABASE SYNC LOGIC
@@ -1098,6 +1110,13 @@
             renderAllViews();
         }
 
+        function formatMemoDate(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}.${m}.${day}`;
+        }
+
         function getEquipmentIcon(name) {
             const found = masterEquipment.find(e => e.name === name);
             if (found && found.icon) return found.icon;
@@ -1252,6 +1271,17 @@
 
             if (iconsBar) {
                 iconsBar.innerHTML = '';
+
+                // 쇼파베드는 침대구성4 값을 기준으로 필터링 (비품 마스터 목록과 별개로 항상 노출)
+                const sofaActive = activeEquipmentFilter === '쇼파베드';
+                const sofaBtn = document.createElement('button');
+                sofaBtn.onclick = () => toggleEquipmentFilter('쇼파베드');
+                sofaBtn.className = `px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 border ${
+                    sofaActive ? 'bg-teal-600 text-white border-teal-600 shadow-xs' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-teal-50 hover:text-teal-700'
+                }`;
+                sofaBtn.innerHTML = `<span>🛋️</span> <span>쇼파베드</span> ${sofaActive ? '<span class="text-[9px] bg-white/20 px-1 rounded">필터중</span>' : ''}`;
+                iconsBar.appendChild(sofaBtn);
+
                 masterEquipment.forEach(eq => {
                     const isActive = activeEquipmentFilter === eq.name;
                     const btn = document.createElement('button');
@@ -1310,6 +1340,17 @@
                                 `).join('') || '<span class="text-xs text-slate-400 italic">보유 비품 없음</span>'}
                             </div>
                         </div>
+
+                        ${room.memo ? `
+                        <div class="pt-2 border-t border-slate-100">
+                            <div class="text-[11px] text-slate-500 bg-amber-50/50 border border-amber-100 p-2 rounded-xl flex items-center gap-1.5">
+                                <i class="fa-regular fa-note-sticky text-amber-500 shrink-0"></i>
+                                <span class="font-extrabold text-amber-600">MEMO</span>
+                                <span class="text-slate-400">${room.memoDate || ''}</span>
+                                <span class="text-slate-600 truncate">${room.memo}</span>
+                            </div>
+                        </div>
+                        ` : ''}
                     `;
                     grid.appendChild(card);
                 });
@@ -1487,6 +1528,22 @@
                         </td>
                     `;
                     roomTbody.appendChild(tr);
+
+                    // 메모가 있는 호실은 바로 아래에 메모 표시용 행을 추가 (메모 없는 호실은 위 행만 표시)
+                    if (r.memo) {
+                        const memoTr = document.createElement('tr');
+                        memoTr.className = 'border-b border-slate-100 bg-amber-50/30';
+                        memoTr.innerHTML = `
+                            <td colspan="6" class="px-3 pb-2 pt-0">
+                                <div class="text-[11px] text-slate-500 flex items-center gap-1.5">
+                                    <span class="font-extrabold text-amber-600">MEMO</span>
+                                    <span class="text-slate-400">${r.memoDate || ''}</span>
+                                    <span class="text-slate-600">${r.memo}</span>
+                                </div>
+                            </td>
+                        `;
+                        roomTbody.appendChild(memoTr);
+                    }
                 });
             }
 
@@ -1746,6 +1803,7 @@
             document.getElementById('editBed2').value = room.bed2 || '-';
             document.getElementById('editBed3').value = room.bed3 || '-';
             document.getElementById('editBed4').value = room.bed4 || '-';
+            document.getElementById('editRoomMemo').value = room.memo || '';
 
             const checkboxesContainer = document.getElementById('roomEquipCheckboxes');
             checkboxesContainer.innerHTML = '';
@@ -1782,6 +1840,10 @@
             const checkboxes = document.querySelectorAll('#roomEquipCheckboxes input[type="checkbox"]:checked');
             checkboxes.forEach(cb => selectedEquip.push(cb.value));
             room.equip = selectedEquip;
+
+            const newMemo = document.getElementById('editRoomMemo').value.trim();
+            room.memo = newMemo;
+            room.memoDate = newMemo ? formatMemoDate(new Date()) : '';
 
             saveStorageData();
             closeRoomEditModal();
@@ -1876,6 +1938,15 @@
                     if (parsed.tasksList) tasksList = parsed.tasksList;
                     if (parsed.currentUser) currentUser = parsed.currentUser;
                     if (parsed.selectedDate) selectedDate = parsed.selectedDate;
+
+                    // 쇼파베드는 침대구성4로 대체되어 비품 목록에서 제외 (복원된 백업에 남아있어도 정리)
+                    masterEquipment = masterEquipment.filter(eq => eq.name !== '쇼파베드');
+                    roomsDB.forEach(r => {
+                        if (r.equip && r.equip.includes('쇼파베드')) {
+                            r.equip = r.equip.filter(name => name !== '쇼파베드');
+                        }
+                    });
+
                     saveStorageData();
                     showToast("백업 데이터가 성공적으로 복원되었습니다.", "success");
                     renderAllViews();
