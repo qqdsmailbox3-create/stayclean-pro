@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 아이콘 폰트 백업 CDN (위 CDN의 폰트 파일이 막히거나 느릴 때 대신 사용) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
     <!-- Google Fonts (Pretendard) -->
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Supabase JS Client Library -->
@@ -126,7 +128,7 @@
                     <!-- Hidden native date input triggered by parent click -->
                     <input type="date" id="taskDatePicker" onchange="onDateInputChange(event)" class="absolute inset-0 opacity-0 w-full h-full cursor-pointer">
                     
-                    <button onclick="goToTodayDate()" class="hidden sm:inline-flex bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold transition items-center gap-1 shrink-0">
+                    <button type="button" onclick="goToTodayDate()" class="relative z-10 inline-flex bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold transition items-center gap-1 shrink-0">
                         <i class="fa-solid fa-rotate-left"></i> 오늘
                     </button>
                 </div>
@@ -202,7 +204,7 @@
             </div>
 
             <!-- Rooms Grid Cards -->
-            <div id="roomsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-4">
+            <div id="roomsGrid" class="space-y-3.5 sm:space-y-4 overflow-x-auto">
                 <!-- Dynamic Room Cards -->
             </div>
         </section>
@@ -374,7 +376,7 @@
                         <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-table-cells text-teal-600"></i> 호실별 침대구성 및 비품 내역 데이터 편집기
                         </h3>
-                        <p class="text-[11px] sm:text-xs text-slate-500 mt-0.5">전체 39개 호실 침대(쇼파베드 포함) 및 보유 비품 목록입니다.</p>
+                        <p class="text-[11px] sm:text-xs text-slate-500 mt-0.5">전체 40개 호실 침대(쇼파베드 포함) 및 보유 비품 목록입니다.</p>
                     </div>
                 </div>
 
@@ -627,6 +629,11 @@
                     </div>
                 </div>
 
+                <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                    <input type="checkbox" id="editRoomIndividual" class="rounded text-teal-600 focus:ring-teal-500">
+                    <span>개별입주</span>
+                </label>
+
                 <div>
                     <label class="block text-[11px] font-bold text-slate-500 mb-1">MEMO</label>
                     <input type="text" id="editRoomMemo" placeholder="예) 청소기 요청, 다리미 고장 등" class="w-full bg-slate-50 border border-slate-300 text-xs text-slate-800 rounded-xl p-2.5 focus:ring-2 focus:ring-teal-500">
@@ -722,6 +729,7 @@
             { roomNo: '603', bed1: '큰침대', bed2: '-', bed3: '-', bed4: '쇼파베드', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
             { roomNo: '604', bed1: '큰침대', bed2: '-', bed3: '-', bed4: '-', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
             { roomNo: '701', bed1: '큰침대', bed2: '작은침대', bed3: '-', bed4: '쇼파베드', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
+            { roomNo: '702', bed1: '큰침대', bed2: '큰침대', bed3: '-', bed4: '쇼파베드', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
             { roomNo: '703', bed1: '큰침대', bed2: '-', bed3: '-', bed4: '쇼파베드', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
             { roomNo: '704', bed1: '큰침대', bed2: '-', bed3: '-', bed4: '-', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
             { roomNo: '801', bed1: '큰침대', bed2: '작은침대', bed3: '-', bed4: '쇼파베드', equip: ['가스경보기', '청소기', '선풍기', '다리미', '건조대'] },
@@ -794,6 +802,21 @@
             }
         }
 
+        // 기본 호실 중 저장 데이터에 없는 호실(예: 702호)을 제자리에 보충 (기존 데이터는 그대로 유지)
+        function ensureDefaultRooms() {
+            DEFAULT_ROOMS_39.forEach((def, idx) => {
+                if (roomsDB.some(r => r.roomNo === def.roomNo)) return;
+                const copy = JSON.parse(JSON.stringify(def));
+                // 기본 목록상 바로 앞 호실 뒤에 삽입
+                let insertAt = roomsDB.length;
+                for (let i = idx - 1; i >= 0; i--) {
+                    const prevIdx = roomsDB.findIndex(r => r.roomNo === DEFAULT_ROOMS_39[i].roomNo);
+                    if (prevIdx !== -1) { insertAt = prevIdx + 1; break; }
+                }
+                roomsDB.splice(insertAt, 0, copy);
+            });
+        }
+
         function loadStorageData() {
             try {
                 const raw = localStorage.getItem('STAYCLEAN_DATA_V1') || sessionStorage.getItem('STAYCLEAN_DATA_V1');
@@ -809,6 +832,8 @@
             } catch(e) {
                 console.error("Storage load error", e);
             }
+
+            ensureDefaultRooms();
 
             // 쇼파베드는 침대구성4로 대체되어 비품 목록에서 제외 (기존 저장 데이터에 남아있어도 정리)
             masterEquipment = masterEquipment.filter(eq => eq.name !== '쇼파베드');
@@ -1300,9 +1325,23 @@
                     ? roomsDB.filter(r => roomMatchesFilter(r, activeEquipmentFilter))
                     : roomsDB;
 
+                // 층별(201~204 / 301~304 ...)로 묶어 한 줄에 4개씩 표시
+                const floorGroups = {};
+                filteredRooms.forEach(room => {
+                    const floor = String(room.roomNo).slice(0, -2);
+                    (floorGroups[floor] = floorGroups[floor] || []).push(room);
+                });
+                const floorGrids = {};
+                Object.keys(floorGroups).forEach(floor => {
+                    const rowGrid = document.createElement('div');
+                    rowGrid.className = 'grid grid-cols-4 gap-2 sm:gap-3.5 min-w-[880px]';
+                    floorGrids[floor] = rowGrid;
+                    grid.appendChild(rowGrid);
+                });
+
                 filteredRooms.forEach(room => {
                     const card = document.createElement('div');
-                    card.className = 'bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3';
+                    card.className = `rounded-2xl p-4 border shadow-xs space-y-3 ${room.individual ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-200/80'}`;
                     
                     const bedList = [];
                     if (room.bed1 && room.bed1 !== '-') bedList.push(`🛏️ ${room.bed1}`);
@@ -1312,7 +1351,7 @@
 
                     card.innerHTML = `
                         <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-                            <span class="text-lg sm:text-xl font-black text-slate-900">${room.roomNo}호</span>
+                            <span class="text-lg sm:text-xl font-black text-slate-900">${room.roomNo}호${room.individual ? ' <span class="text-[10px] font-bold text-slate-600 bg-white/70 border border-slate-300 px-1.5 py-0.5 rounded align-middle">개별입주</span>' : ''}</span>
                             <span class="text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-lg border border-teal-200">
                                 침대 ${bedList.length}개
                             </span>
@@ -1352,7 +1391,7 @@
                         </div>
                         ` : ''}
                     `;
-                    grid.appendChild(card);
+                    floorGrids[String(room.roomNo).slice(0, -2)].appendChild(card);
                 });
             }
         }
@@ -1504,9 +1543,9 @@
 
                 displayRooms.forEach(r => {
                     const tr = document.createElement('tr');
-                    tr.className = 'hover:bg-slate-50 border-b border-slate-100 text-xs';
+                    tr.className = `border-b border-slate-100 text-xs ${r.individual ? 'bg-slate-200 hover:bg-slate-300/70' : 'hover:bg-slate-50'}`;
                     tr.innerHTML = `
-                        <td class="p-3 font-extrabold text-slate-900">${r.roomNo}호</td>
+                        <td class="p-3 font-extrabold text-slate-900">${r.roomNo}호${r.individual ? ' <span class="ml-1 text-[9px] font-bold text-slate-600 bg-white/70 border border-slate-300 px-1 py-0.5 rounded">개별입주</span>' : ''}</td>
                         <td class="p-3 text-slate-700 font-bold">${r.bed1 || '-'}</td>
                         <td class="p-3 text-slate-700 font-bold">${r.bed2 || '-'}</td>
                         <td class="p-3 text-slate-700 font-bold">${r.bed3 || '-'}</td>
@@ -1532,7 +1571,7 @@
                     // 메모가 있는 호실은 바로 아래에 메모 표시용 행을 추가 (메모 없는 호실은 위 행만 표시)
                     if (r.memo) {
                         const memoTr = document.createElement('tr');
-                        memoTr.className = 'border-b border-slate-100 bg-amber-50/30';
+                        memoTr.className = `border-b border-slate-100 ${r.individual ? 'bg-slate-200' : 'bg-amber-50/30'}`;
                         memoTr.innerHTML = `
                             <td colspan="6" class="px-3 pb-2 pt-0">
                                 <div class="text-[11px] text-slate-500 flex items-center gap-1.5">
@@ -1804,6 +1843,7 @@
             document.getElementById('editBed3').value = room.bed3 || '-';
             document.getElementById('editBed4').value = room.bed4 || '-';
             document.getElementById('editRoomMemo').value = room.memo || '';
+            document.getElementById('editRoomIndividual').checked = !!room.individual;
 
             const checkboxesContainer = document.getElementById('roomEquipCheckboxes');
             checkboxesContainer.innerHTML = '';
@@ -1844,6 +1884,7 @@
             const newMemo = document.getElementById('editRoomMemo').value.trim();
             room.memo = newMemo;
             room.memoDate = newMemo ? formatMemoDate(new Date()) : '';
+            room.individual = document.getElementById('editRoomIndividual').checked;
 
             saveStorageData();
             closeRoomEditModal();
@@ -1938,6 +1979,8 @@
                     if (parsed.tasksList) tasksList = parsed.tasksList;
                     if (parsed.currentUser) currentUser = parsed.currentUser;
                     if (parsed.selectedDate) selectedDate = parsed.selectedDate;
+
+                    ensureDefaultRooms();
 
                     // 쇼파베드는 침대구성4로 대체되어 비품 목록에서 제외 (복원된 백업에 남아있어도 정리)
                     masterEquipment = masterEquipment.filter(eq => eq.name !== '쇼파베드');
