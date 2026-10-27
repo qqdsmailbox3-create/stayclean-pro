@@ -629,10 +629,16 @@
                     </div>
                 </div>
 
-                <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
-                    <input type="checkbox" id="editRoomIndividual" class="rounded text-teal-600 focus:ring-teal-500">
-                    <span>개별입주</span>
-                </label>
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                        <input type="checkbox" id="editRoomIndividual" class="rounded text-teal-600 focus:ring-teal-500">
+                        <span>개별입주</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 bg-pink-50 border border-pink-200 rounded-xl px-3 py-2.5">
+                        <input type="checkbox" id="editRoomSpecial" class="rounded text-pink-500 focus:ring-pink-400">
+                        <span>별도구성</span>
+                    </label>
+                </div>
 
                 <div>
                     <label class="block text-[11px] font-bold text-slate-500 mb-1">MEMO</label>
@@ -1341,7 +1347,7 @@
 
                 filteredRooms.forEach(room => {
                     const card = document.createElement('div');
-                    card.className = `rounded-2xl p-4 border shadow-xs space-y-3 ${room.individual ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-200/80'}`;
+                    card.className = `rounded-2xl p-4 border shadow-xs space-y-3 ${room.special ? 'bg-pink-100 border-pink-300' : (room.individual ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-200/80')}`;
                     
                     const bedList = [];
                     if (room.bed1 && room.bed1 !== '-') bedList.push(`🛏️ ${room.bed1}`);
@@ -1351,7 +1357,7 @@
 
                     card.innerHTML = `
                         <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-                            <span class="text-lg sm:text-xl font-black text-slate-900">${room.roomNo}호${room.individual ? ' <span class="text-[10px] font-bold text-slate-600 bg-white/70 border border-slate-300 px-1.5 py-0.5 rounded align-middle">개별입주</span>' : ''}</span>
+                            <span class="text-lg sm:text-xl font-black text-slate-900">${room.roomNo}호${room.individual ? ' <span class="text-[10px] font-bold text-slate-600 bg-white/70 border border-slate-300 px-1.5 py-0.5 rounded align-middle">개별입주</span>' : ''}${room.special ? ' <span class="text-[10px] font-bold text-pink-600 bg-white/70 border border-pink-300 px-1.5 py-0.5 rounded align-middle">별도구성</span>' : ''}</span>
                             <span class="text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-lg border border-teal-200">
                                 침대 ${bedList.length}개
                             </span>
@@ -1543,9 +1549,9 @@
 
                 displayRooms.forEach(r => {
                     const tr = document.createElement('tr');
-                    tr.className = `border-b border-slate-100 text-xs ${r.individual ? 'bg-slate-200 hover:bg-slate-300/70' : 'hover:bg-slate-50'}`;
+                    tr.className = `border-b border-slate-100 text-xs ${r.special ? 'bg-pink-100 hover:bg-pink-200/70' : (r.individual ? 'bg-slate-200 hover:bg-slate-300/70' : 'hover:bg-slate-50')}`;
                     tr.innerHTML = `
-                        <td class="p-3 font-extrabold text-slate-900">${r.roomNo}호${r.individual ? ' <span class="ml-1 text-[9px] font-bold text-slate-600 bg-white/70 border border-slate-300 px-1 py-0.5 rounded">개별입주</span>' : ''}</td>
+                        <td class="p-3 font-extrabold text-slate-900">${r.roomNo}호${r.individual ? ' <span class="ml-1 text-[9px] font-bold text-slate-600 bg-white/70 border border-slate-300 px-1 py-0.5 rounded">개별입주</span>' : ''}${r.special ? ' <span class="ml-1 text-[9px] font-bold text-pink-600 bg-white/70 border border-pink-300 px-1 py-0.5 rounded">별도구성</span>' : ''}</td>
                         <td class="p-3 text-slate-700 font-bold">${r.bed1 || '-'}</td>
                         <td class="p-3 text-slate-700 font-bold">${r.bed2 || '-'}</td>
                         <td class="p-3 text-slate-700 font-bold">${r.bed3 || '-'}</td>
@@ -1571,7 +1577,7 @@
                     // 메모가 있는 호실은 바로 아래에 메모 표시용 행을 추가 (메모 없는 호실은 위 행만 표시)
                     if (r.memo) {
                         const memoTr = document.createElement('tr');
-                        memoTr.className = `border-b border-slate-100 ${r.individual ? 'bg-slate-200' : 'bg-amber-50/30'}`;
+                        memoTr.className = `border-b border-slate-100 ${r.special ? 'bg-pink-100' : (r.individual ? 'bg-slate-200' : 'bg-amber-50/30')}`;
                         memoTr.innerHTML = `
                             <td colspan="6" class="px-3 pb-2 pt-0">
                                 <div class="text-[11px] text-slate-500 flex items-center gap-1.5">
@@ -1844,6 +1850,7 @@
             document.getElementById('editBed4').value = room.bed4 || '-';
             document.getElementById('editRoomMemo').value = room.memo || '';
             document.getElementById('editRoomIndividual').checked = !!room.individual;
+            document.getElementById('editRoomSpecial').checked = !!room.special;
 
             const checkboxesContainer = document.getElementById('roomEquipCheckboxes');
             checkboxesContainer.innerHTML = '';
@@ -1885,6 +1892,7 @@
             room.memo = newMemo;
             room.memoDate = newMemo ? formatMemoDate(new Date()) : '';
             room.individual = document.getElementById('editRoomIndividual').checked;
+            room.special = document.getElementById('editRoomSpecial').checked;
 
             saveStorageData();
             closeRoomEditModal();
