@@ -796,6 +796,14 @@
         let myTasksOnlyFilter = false;
         let isSupabaseConnected = false;
 
+        // 여러 사람이 같은 방 정보를 보도록 Supabase(app_state 테이블)와 동기화하는 상태값
+        let sharedReady = false;          // 서버 데이터를 한 번 받아오기 전에는 업로드하지 않음 (오래된 기기 데이터가 덮어쓰는 것 방지)
+        let sharedSnapshot = {};          // 서버와 마지막으로 맞춘 값 (key -> 문자열)
+        let sharedPushTimer = null;
+        let sharedPushing = false;
+        let sharedPushAgain = false;
+        let sharedErrorShown = false;
+
         function saveStorageData() {
             try {
                 const payload = JSON.stringify({
@@ -806,6 +814,7 @@
             } catch(e) {
                 console.error("Storage save error", e);
             }
+            scheduleSharedPush();
         }
 
         // 기본 호실 중 저장 데이터에 없는 호실(예: 702호)을 제자리에 보충 (기존 데이터는 그대로 유지)
@@ -957,8 +966,119 @@
                             console.warn("Realtime WebSocket subscription unavailable in this environment. Falling back to HTTP sync.");
                         }
                     });
+
+                supabaseClient.channel('public:app_state')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_state' }, () => {
+                        fetchSharedState();
+                    })
+                    .subscribe();
             } catch(e) {
                 console.warn("Realtime subscription skipped due to environment restriction:", e);
+            }
+        }
+
+        // ===== 방 정보 / 비품 목록 / 회원 목록 공유 동기화 (Supabase app_state 테이블) =====
+        function stableStringify(v) {
+            if (Array.isArray(v)) return '[' + v.map(x => stableStringify(x === undefined ? null : x)).join(',') + ']';
+            if (v && typeof v === 'object') {
+                return '{' + Object.keys(v).sort().filter(k => v[k] !== undefined)
+                    .map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+            }
+            return JSON.stringify(v);
+        }
+
+        function buildSharedState() {
+            const state = {};
+            roomsDB.forEach(r => { state['room:' + r.roomNo] = r; });
+            state['master_equipment'] = masterEquipment;
+            state['members'] = membersDB;
+            return state;
+        }
+
+        function scheduleSharedPush() {
+            if (!supabaseClient || !sharedReady) return;
+            clearTimeout(sharedPushTimer);
+            sharedPushTimer = setTimeout(pushSharedState, 500);
+        }
+
+        async function pushSharedState() {
+            if (!supabaseClient || !sharedReady) return;
+            if (sharedPushing) { sharedPushAgain = true; return; }
+            sharedPushing = true;
+            try {
+                const state = buildSharedState();
+                const rows = [];
+                Object.keys(state).forEach(k => {
+                    const str = stableStringify(state[k]);
+                    if (sharedSnapshot[k] !== str) rows.push({ key: k, value: state[k], updated_at: new Date().toISOString(), _str: str });
+                });
+                if (rows.length) {
+                    const { error } = await supabaseClient.from('app_state').upsert(rows.map(r => ({ key: r.key, value: r.value, updated_at: r.updated_at })));
+                    if (error) {
+                        console.warn("Shared state push failed:", error.message);
+                        if (!sharedErrorShown) { sharedErrorShown = true; showToast("공유 저장에 실패했어요. 이 기기에만 저장됩니다.", "danger"); }
+                    } else {
+                        rows.forEach(r => { sharedSnapshot[r.key] = r._str; });
+                    }
+                }
+            } catch (err) {
+                console.warn("Shared state push exception:", err);
+            } finally {
+                sharedPushing = false;
+                if (sharedPushAgain) { sharedPushAgain = false; pushSharedState(); }
+            }
+        }
+
+        async function fetchSharedState() {
+            if (!supabaseClient) return;
+            try {
+                const { data, error } = await supabaseClient.from('app_state').select('key,value');
+                if (error || !data) {
+                    console.log("app_state fetch notice (이 기기에만 저장):", error && error.message);
+                    if (!sharedErrorShown) { sharedErrorShown = true; showToast("방 정보 공유 DB에 연결하지 못했어요. 이 기기에만 저장됩니다.", "danger"); }
+                    return;
+                }
+
+                // 서버가 비어 있으면(최초 1회) 지금 기기의 데이터를 기준으로 올림
+                if (data.length === 0 && !sharedReady) {
+                    sharedReady = true;
+                    await pushSharedState();
+                    return;
+                }
+
+                let changed = false;
+                data.forEach(row => {
+                    const str = stableStringify(row.value);
+                    if (sharedSnapshot[row.key] === str) return;
+                    sharedSnapshot[row.key] = str;
+                    changed = true;
+                    if (row.key.startsWith('room:')) {
+                        const idx = roomsDB.findIndex(r => 'room:' + r.roomNo === row.key);
+                        if (idx >= 0) roomsDB[idx] = row.value; else roomsDB.push(row.value);
+                    } else if (row.key === 'master_equipment' && Array.isArray(row.value) && row.value.length) {
+                        masterEquipment = row.value;
+                    } else if (row.key === 'members' && Array.isArray(row.value) && row.value.length) {
+                        membersDB = row.value;
+                    }
+                });
+
+                const firstSync = !sharedReady;
+                sharedReady = true;
+
+                if (changed) {
+                    roomsDB.sort((a, b) => Number(a.roomNo) - Number(b.roomNo));
+                    ensureDefaultRooms();
+                    masterEquipment = masterEquipment.filter(eq => eq.name !== '쇼파베드');
+                    roomsDB.forEach(r => {
+                        if (r.equip && r.equip.includes('쇼파베드')) r.equip = r.equip.filter(n => n !== '쇼파베드');
+                    });
+                    saveStorageData();
+                    renderAllViews();
+                }
+                // 이 기기에만 있던 호실(예: 새로 추가된 702호)이 있으면 서버에도 올림
+                if (firstSync) await pushSharedState();
+            } catch (err) {
+                console.warn("Shared state fetch exception:", err);
             }
         }
 
@@ -2033,11 +2153,13 @@
             
             if (supabaseClient) {
                 await fetchSupabaseTasks();
+                await fetchSharedState();
                 setupSupabaseRealtimeListener();
 
                 // Periodic HTTP polling fallback (for environments where WebSockets are restricted)
                 setInterval(() => {
                     fetchSupabaseTasks();
+                    fetchSharedState();
                 }, 15000);
             }
 
